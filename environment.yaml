@@ -1,0 +1,10 @@
+name: syn_diff
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - ninja
+  - pip:
+    - scikit-learn
+    - scikit-image
+    - h5py
