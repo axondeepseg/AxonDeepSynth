@@ -21,6 +21,16 @@ class EMA(Optimizer):
         self.optimizer = opt
         self.state = opt.state
         self.param_groups = opt.param_groups
+        
+        # Initialize an empty list to collect all parameters
+        flat_parameters_list = []
+
+        # Iterate over all parameter groups and collect parameters
+        for param_group in opt.param_groups:
+            for param in param_group['params']:
+                flat_parameters_list.append(param)
+                
+        super().__init__(flat_parameters_list, opt.defaults)
 
     def step(self, *args, **kwargs):
         retval = self.optimizer.step(*args, **kwargs)
