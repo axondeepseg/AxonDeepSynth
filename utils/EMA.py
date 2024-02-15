@@ -21,7 +21,7 @@ class EMA(Optimizer):
         self.optimizer = opt
         self.state = opt.state
         self.param_groups = opt.param_groups
-        
+        # these lines were changed to accomodate a torch version >= 2.2.0
         # Initialize an empty list to collect all parameters
         flat_parameters_list = []
 
