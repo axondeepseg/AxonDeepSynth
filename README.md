@@ -8,22 +8,35 @@ Muzaffer Özbey, Onat Dalmaz, Salman UH Dar, Hasan A Bedel, Şaban Özturk, Alpe
 
 <img src="./figures/syndiff.png" width="600px">
 
-## Dependencies
-
-```
-python>=3.6.9
-torch>=1.7.1
-torchvision>=0.8.2
-cuda=>11.2
-ninja
-python3.x-dev (apt install, x should match your python3 version, ex: 3.8)
-```
 
 ## Installation
 - Clone this repo:
 ```bash
-git clone https://github.com/icon-lab/SynDiff
+git clone git@github.com:axondeepseg/SynDiff.git
 cd SynDiff
+```
+
+## Setting Up Conda Environment
+
+To set up the environment and run the scripts, follow these steps:
+
+1. Create a new conda environment:
+```bash
+conda create --name syn_diff
+```
+2. Activate the environment:
+```bash
+conda activate syn_diff
+```
+3. Install PyTorch, torchvision, and torchaudio. For NeuroPoly lab members using the GPU servers, use the following command:
+```bash
+conda install pytorch torchvision torchaudio pytorch-cuda=12.1 -c pytorch -c nvidia
+```
+For others, please refer to the PyTorch installation guide at https://pytorch.org/get-started/locally/ to get the appropriate command for your system.
+
+4. Update the environment with the remaining dependencies:
+```bash
+conda env update --file environment.yaml
 ```
 
 ## Dataset
@@ -33,15 +46,13 @@ You should structure your aligned dataset in the following way:
 
 ```
 input_path/
-  ├── data_train_contrast1.mat
-  ├── data_train_contrast2.mat
-  ├── data_val_contrast1.mat
-  ├── data_val_contrast2.mat
-  ├── data_test_contrast1.mat
-  ├── data_test_contrast2.mat
+  ├── dataset_train.hdf5
+  ├── dataset_val.hdf5
+  ├── dataset_test.hdf5
+
 ```
 
-where .mat files has shape of (#images, width, height) and image values are between 0 and 1.0. 
+where each .hdf5 file is a dataset with the following structure: At the top level, the HDF5 file contains keys corresponding to two distinct data modalities. Each modality key then contains datasets indexed by sequential integers as strings ('0', '1', '2', ..., `<length modality>`), representing individual samples.
 ### Sample Data
 Sample toy data can also found under 'SynDiff_sample_data' folder of the repository. 
 

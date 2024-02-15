@@ -1,25 +1,22 @@
 
 
 import argparse
-import torch
-import numpy as np
-
 import os
+import shutil
 
+import numpy as np
+import torch
 import torch.autograd as autograd
+import torch.distributed as dist
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import torchvision
-
 import torchvision.transforms as transforms
-from dataset import CreateDatasetSynthesis
-
-from torch.multiprocessing import Process
-import torch.distributed as dist
-import shutil
 from skimage.metrics import peak_signal_noise_ratio as psnr
+from torch.multiprocessing import Process
 
+from dataset import CreateDatasetSynthesis
 
 
 def copy_source(file, output_dir):
@@ -185,15 +182,12 @@ def sample_from_model(coefficients, generator, n_time, x_init, T, opt):
 def train_syndiff(rank, gpu, args):
 
     
-    from backbones.discriminator import Discriminator_small, Discriminator_large
-    
+    import backbones.generator_resnet
+    from backbones.discriminator import (Discriminator_large,
+                                         Discriminator_small)
     from backbones.ncsnpp_generator_adagn import NCSNpp
-    
-    import backbones.generator_resnet 
-    
-    
     from utils.EMA import EMA
-    
+
     #rank = args.node_rank * args.num_process_per_node + gpu
     
     torch.manual_seed(args.seed + rank)
@@ -206,8 +200,8 @@ def train_syndiff(rank, gpu, args):
     nz = args.nz #latent dimension
     
 
-    dataset = CreateDatasetSynthesis(phase = "train", input_path = args.input_path, contrast1 = args.contrast1, contrast2 = args.contrast2)
-    dataset_val = CreateDatasetSynthesis(phase = "val", input_path = args.input_path, contrast1 = args.contrast1, contrast2 = args.contrast2 )
+    dataset = CreateDatasetSynthesis(phase = "train", input_path = args.input_path, contrast1 = args.contrast1, contrast2 = args.contrast2, size = args.image_size)
+    dataset_val = CreateDatasetSynthesis(phase = "val", input_path = args.input_path, contrast1 = args.contrast1, contrast2 = args.contrast2, size = args.image_size)
 
 
     
@@ -367,8 +361,9 @@ def train_syndiff(rank, gpu, args):
     
     
     for epoch in range(init_epoch, args.num_epoch+1):
+        dataset.on_epoch_start()
         train_sampler.set_epoch(epoch)
-       
+
         for iteration, (x1, x2) in enumerate(data_loader):
             for p in disc_diffusive_1.parameters():  
                 p.requires_grad = True  
