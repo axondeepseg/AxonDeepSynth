@@ -1,0 +1,72 @@
+seed: 42
+exp: 'exp_syndiff'
+syndiff_results_path: null
+contrast1: null
+contrast2: null
+
+network_distribution:
+  num_proc_node: 1  # Number of processing nodes in the network
+  node_rank: 0  # Rank of the node within the network
+  gpus: [0]  # GPUs available on the node
+  master_address: '127.0.0.1'  # IP address of the master node
+  port_num: '6021'  # Port number used for communication between nodes
+
+model_config:
+  image_size: 512  # Size of the images
+  num_channels: 2  # Number of channels in the input images
+  num_channels_dae: 64  # Number of channels in the Denoising Autoencoder (DAE)
+  latent_dim: 100  # Dimensionality of the latent space
+  num_timesteps: 4  # Number of timesteps for the diffusion process
+  z_emb_dim: 256  # Dimensionality of the latent z embedding
+  t_emb_dim: 256  # Dimensionality of the time embedding
+  use_geometric: false  # Whether to use geometric progression for variance schedule
+  beta_min: 0.1  # Minimum value of beta for the noise schedule
+  beta_max: 20.0  # Maximum value of beta for the noise schedule
+
+  ch_mult: [1, 1, 2, 2, 4, 4]  # Multipliers for each channel in the network layers
+  num_res_blocks: 2  # Number of residual blocks in each resolution
+  attn_resolutions: [16]  # Resolutions at which to apply attention
+  resblock_type: 'biggan'  # Type of residual block (e.g., 'biggan', 'ddpm')
+  progressive: 'none'  # Type of progressive growing (e.g., 'none', 'output_skip')
+  progressive_input: 'residual'  # Input progression mode (e.g., 'input_skip')
+  progressive_combine: 'sum'  # Method to combine features in progressive growing
+  fir: true  # Whether to use Finite Impulse Response in up/downsampling
+  fir_kernel: [1, 3, 3, 1]  # Kernel sizes for FIR up/downsampling
+  skip_rescale: true  # Whether to rescale the activations in skip connections
+  resamp_with_conv: true  # Whether to perform resampling using convolution
+  conditional: true  # Whether the model is conditional
+  n_mlp: 3  # Number of layers in the MLP for z conditioning
+  ngf: 64  # Number of generator filters
+
+  embedding_type: 'positional'  # Type of embedding (e.g., 'positional', 'fourier')
+  fourier_scale: 16.0  # Scaling factor for Fourier features
+  not_use_tanh: false  # Whether to avoid using tanh activation at the output
+
+training_config:
+  resume: false
+  save_content: true
+  save_content_every: 10
+  save_ckpt_every: 10
+  training_dataset_path: null
+  paired: false
+  optimization_config:
+    num_epoch: 500
+    batch_size: 1
+    lr_g: 0.00016  # Learning rate for the generator
+    lr_d: 0.0001  # Learning rate for the discriminator
+    beta1: 0.5  # Beta1 for Adam
+    beta2: 0.9  # Beta2 for Adam
+    no_lr_decay: false  # Whether to decay the learning rate
+    use_ema: true  # Whether to use exponential moving averages
+    ema_decay: 0.999  # EMA decay rate
+    r1_gamma: 1.0  # R1 regularization rate
+    lazy_reg: 10  # Frequency of lazy regularization
+    lambda_l1_loss: 0.5  # L1 loss weight
+    dropout: 0.0  # Dropout rate
+
+translation_config:
+  path_dataset_to_translate: null
+  which_epoch: null
+  source_contrast: null
+  nnunet_dataset_id: null
+  nnunet_dir: null
