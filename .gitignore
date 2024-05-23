@@ -3,3 +3,5 @@
 saved_info/*
 saved_info
 local/
+.vscode/
+outputs/
