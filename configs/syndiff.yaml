@@ -68,5 +68,11 @@ translation_config:
   path_dataset_to_translate: null
   which_epoch: null
   source_contrast: null
+  output_dir: null
+  is_nnunet_dir: null
+
+segmentation_config:
+  path_dataset_to_segment: null
+  path_to_nnunet_model: null
   nnunet_dataset_id: null
   nnunet_dir: null

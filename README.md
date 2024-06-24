@@ -49,8 +49,8 @@ If you utilize this model or the associated code, please cite their paper as fol
 ## Installation
 - Clone this repo:
 ```bash
-git clone git@github.com:axondeepseg/SynDiff.git
-cd SynDiff
+git clone git@github.com:axondeepseg/AxonDeepSynth.git
+cd AxonDeepSynth
 ```
 
 ### Setting Up Conda Environment
@@ -116,20 +116,22 @@ python train.py exp=<EXPERIMENT_NAME> \
                 contrast2=<MODALITY2> \
                 network_distribution.gpus=[<GPU_ID_1>, <GPU_ID_2>, ..., <GPU_ID_k>] \
                 training_config.training_dataset_path=<PATH_TO_DATASET> \
-                syndiff_results_path=<PATH_TO_SAVE_RESULTS>
+                syndiff_results_path=<PATH_TO_SAVE_RESULTS> \
+                model_config.image_size=<IMAGE_SIZE> \ # Image size to use for training.
 ```
 
-### Training a Segmentation Model with Synthetic Data
+### Tutorship: Training a Segmentation Model with Synthetic Data
 
 This section assumes that you have successfully trained the SynDiff model. Additionally, ensure that the <NNUNET_DIR> directory is created beforehand as it will serve as the designated directory for the nnUNet pipeline operations. Once the SynDiff model is trained, you are ready to translate datasets from one modality to another. Begin by generating the dataset for translation using the `scripts/create_dataset_to_be_translated.py` script with the command below:
 
 ```bash
-python scripts/create_dataset_to_be_translated.py <PATH_TO_DATASET_TO_TRANSLATE> \
+python scripts/create_dataset_to_be_translated.py <PATH_TO_DATASET_TO_TRANSLATE> \ # Path to the nnUNet dataset to translate.
                                                   <OUTPUT_PATH> \ # Path to save the dataset. The name of the file will be <SOURCE_CONTRAST>/<FILENAME>_<SOURCE_CONTRAST>.hdf5"
                                                   --filename <FILENAME> \ # Name of the file to save the dataset.
                                                   --scale_factor <SCALE_FACTOR> \ # Scale factor used to resize the images in the dataset before translation.
                                                   --tile-size <TILE_SIZE> \ # Must be the same as the one used during training.
                                                   --modality <SOURCE_CONTRAST> \ # Modality to translate from.
+                                                  --is-nnunet-dir # Indicates that the source dataset is for nnUNet training
 ```
 
 Next, use the `translate_dataset.py` script to translate the resulting dataset with the following command:
@@ -142,8 +144,9 @@ python scripts/translate_dataset.py    exp=<EXPERIMENT_NAME> \
                                        network_distribution.gpus=[<GPU_ID_1>, <GPU_ID_2>, ..., <GPU_ID_k>] \
                                        translation_config.which_epoch=<EPOCH> \ # Epoch to use for translation
                                        translation_config.source_contrast=<SOURCE_CONTRAST> \ # Modality to translate from
-                                       translation_config.nnunet_dataset_id=<NNUNET_DATASET_ID> \ # Nnunet dataset id of the output dataset.
-                                       translation_config.nnunet_dir=<NNUNET_DIR> \ # Nnunet directory of the output dataset.
+                                       segmentation_config.nnunet_dataset_id=<NNUNET_DATASET_ID> \ # Nnunet dataset id of the output dataset.
+                                       segmentation_config.nnunet_dir=<NNUNET_DIR> \ # Nnunet directory of the output dataset.
+                                       translation_config.is_nnunet_dir=True\ # Indicates that we are translating an nnunet dataset and not just a folder containing images.
                                        syndiff_results_path=<PATH_TO_SAVE_RESULTS> \ # Path to syndiff results where the checkpoint of the model is saved. Is the same as the one used during training.
 ```
 
@@ -163,6 +166,35 @@ To parallelize the execution of the training script for faster processing, you c
 ./scripts/train_nnunet.sh <NNUNET_DATASET_ID> <DATASET_NAME> <GPU_ID> 4 & 
 ```
 
+### Adaptation: Translating OOD Images to a Modality Compatible with a Trained Segmentation Model
+
+This section assumes that you have successfully trained the SynDiff model. Once the SynDiff model is trained, you are ready to translate datasets from one modality to another. Begin by generating the dataset for translation using the `scripts/create_dataset_to_be_translated.py` script with the command below:
+
+```bash
+python scripts/create_dataset_to_be_translated.py <PATH_TO_DATASET_TO_TRANSLATE> \ # Path to the dataset to translate.
+                                                  <OUTPUT_PATH> \ # Path to save the dataset. The name of the file will be <SOURCE_CONTRAST>/<FILENAME>_<SOURCE_CONTRAST>.hdf5"
+                                                  --filename <FILENAME> \ # Name of the file to save the dataset.
+                                                  --scale_factor <SCALE_FACTOR> \ # Scale factor used to resize the images in the dataset before translation.
+                                                  --tile-size <TILE_SIZE> \ # Must be the same as the one used during training.
+                                                  --modality <SOURCE_CONTRAST> \ # Modality to translate from.
+```
+
+Next, use the `translate_dataset.py` script to translate the resulting dataset with the following command:
+
+```bash
+python scripts/translate_dataset.py    exp=<EXPERIMENT_NAME> \
+                                       contrast1=<MODALITY1> \
+                                       contrast2=<MODALITY2> \
+                                       translation_config.path_dataset_to_translate=<PATH_TO_DATASET> \ # Path to the dataset to translate. This should be the output path of the create_dataset_to_be_translated.py script
+                                       network_distribution.gpus=[<GPU_ID_1>, <GPU_ID_2>, ..., <GPU_ID_k>] \
+                                       translation_config.which_epoch=<EPOCH> \ # Epoch to use for translation
+                                       translation_config.source_contrast=<SOURCE_CONTRAST> \ # Modality to translate from
+                                       translation_config.output_dir=<OUTPUT_DIR> \ # Path to save the translated dataset.
+                                       translation_config.is_nnunet_dir=False\ # Indicates that we are translating an nnunet dataset and not just a folder containing images.
+                                       syndiff_results_path=<PATH_TO_SAVE_RESULTS> \ # Path to syndiff results where the checkpoint of the model is saved. Is the same as the one used during training.
+```
+
+
 ### Inference with a Trained Segmentation Model
 
 After you have a trained nnunet and have run the `source ./scripts/setup_nnunet.sh` command, you run inference via the following command:
@@ -172,6 +204,38 @@ python scripts/run_inference.py --path-dataset ${nnUNet_raw}/Dataset<FORMATTED_D
 The `--use-best-checkpoint` flag is optional. If used, the model will use the best checkpoints for inference. If not used, the model will use the latest checkpoints. Based on empirical results, using the `--use-best-checkpoint` flag is recommended.
 
 Note: `<FORMATTED_DATASET_ID>` should be a three-digit number where 1 would become 001 and 23 would become 023.
+
+## Evaluation
+
+### Evaluation of the SynDiff Model
+
+To evaluate the SynDiff model, run the `test.py` script with the appropriate experiment configuration and dataset paths.
+
+```bash
+python test.py exp=<EXPERIMENT_NAME> \
+            contrast1=<MODALITY1> \
+            contrast2=<MODALITY2> \
+            network_distribution.gpus=[<GPU_ID>] \
+            translation_config.which_epoch=<EPOCH> \
+            training_config.training_dataset_path="<TRAINING_DATASET_PATH>" \
+            syndiff_results_path="<SYNDIFF_RESULTS_PATH>" \
+            model_config.image_size=<IMAGE_SIZE>
+```
+
+### Evaluation of the Segmentation Model
+
+Execute the script from the command line by providing the required arguments:
+
+```bash
+./scripts/evaluate_segmentation.sh <image_dir> <labels_dir> <output_dir> <model> <NNUNET_PATH>
+```
+
+where the arguments are: 
+- `image_dir`: Directory containing the images for inference.
+- `labels_dir`: Directory containing the ground truth labels for evaluation.
+- `output_dir`: Directory where the output segmentations and scores will be saved.
+- `model`: Model identifier used to locate the specific trained model.
+- `NNUNET_PATH`: Path to the nnUNet framework results directory.
 
 # Acknowledgements
 

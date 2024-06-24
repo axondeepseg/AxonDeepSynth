@@ -1,5 +1,5 @@
 import os
-from typing import Callable, List, Literal, Optional
+from typing import Callable, Dict, List, Literal, Optional
 
 import h5py
 import numpy as np
@@ -233,6 +233,7 @@ class DatasetToBeTranslated(Dataset):
         self,
         path_hdf5_dataset: str,
         modality: str = "sem",
+        has_labels: bool = True,
     ):
         """
         Initializes the dataset object for a specific modality within an HDF5 file.
@@ -249,13 +250,15 @@ class DatasetToBeTranslated(Dataset):
         """
         self.path_hdf5_dataset = path_hdf5_dataset
         self.modality = modality
+        self.has_labels = has_labels
         self.image_transforms = [
             transforms.Lambda(lambda x: (x / 127.5) - 1.0),
             transforms.Lambda(lambda x: x.unsqueeze(0)),
         ]
-        self.label_transforms = [
-            transforms.Lambda(lambda x: x.unsqueeze(0)),
-        ]
+        if self.has_labels:
+            self.label_transforms = [
+                transforms.Lambda(lambda x: x.unsqueeze(0)),
+            ]
 
         # Store the length of the dataset
         with h5py.File(self.path_hdf5_dataset, "r") as file:
@@ -287,19 +290,42 @@ class DatasetToBeTranslated(Dataset):
 
         Returns
         -------
-        tuple
-            A tuple containing the image and label from the dataset, potentially transformed.
+        output : Dict[str, Any]
+            A dictionary containing the image and label from the dataset, potentially transformed and 
+            metadata about the sample.
         """
         with h5py.File(self.path_hdf5_dataset, "r") as file:
-            image, label = torch.from_numpy(
-                np.array(file[self.modality]["images"][str(idx)])
-            ), torch.from_numpy(np.array(file[self.modality]["labels"][str(idx)]))
+            image_dataset = file[self.modality]["images"][str(idx)]
+            if self.has_labels:
+                label_dataset = file[self.modality]["labels"][str(idx)]
+
+            output = {
+                "image_location": image_dataset.attrs["location"],
+                "image_path_original": image_dataset.attrs["path_to_original"],
+            }
+
+            image = torch.from_numpy(np.array(image_dataset))
 
             # Apply transformations
             for transform in self.image_transforms:
                 image = transform(image)
 
-            for transform in self.label_transforms:
-                label = transform(label)
+            output["image"] = image
 
-        return image, label
+            if self.has_labels:
+                output["label_location"] = label_dataset.attrs["location"]
+                output["label_path_original"] = label_dataset.attrs["path_to_original"]
+
+                if (output["image_location"] != output["label_location"]).all():
+                    raise ValueError(
+                        f"The location of the image and label datasets for sample {idx} do not match."
+                    )
+
+                label = torch.from_numpy(np.array(label_dataset))
+
+                for transform in self.label_transforms:
+                    label = transform(label)
+
+                output["label"] = label
+
+        return output

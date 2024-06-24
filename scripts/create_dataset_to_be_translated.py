@@ -6,7 +6,7 @@ import numpy as np
 from PIL import Image
 from tqdm import tqdm
 
-from utils.images import resize_image
+from utils.images import resize_image, split_image_into_tiles
 
 
 def parse_args():
@@ -14,7 +14,7 @@ def parse_args():
     parser.add_argument(
         "DIRPATH",
         type=str,
-        help="Path in nnUNet format to get the images and their labels from",
+        help="Path in nnUNet format to get the images and their labels from or path to a directory with images.",
     )
     parser.add_argument(
         "OUTPUT_DIRPATH",
@@ -45,51 +45,22 @@ def parse_args():
         default="dataset",
         help="The name of the HDF5 file to be created (default: dataset)",
     )
+    parser.add_argument(
+        "--is-nnunet-dir",
+        action="store_true",
+        help="Whether the input directory is in nnUNet format (default: False)",
+    )
     return parser.parse_args()
-
-
-def split_image_into_tiles(image_array: np.ndarray, tile_height: int, tile_width: int):
-    """
-    Splits an image into tiles of specified size. If the image cannot be evenly divided,
-    the last tile in a row or column will overlap with the previous tile.
-
-    Parameters
-    ----------
-    image_array : ndarray
-        Numpy array of the image.
-    tile_height : int
-        Height of each tile.
-    tile_width : int
-        Width of each tile.
-
-    Returns
-    -------
-    list of ndarray
-        A list of numpy arrays, each representing a tile.
-    """
-    tiles = []
-    img_height, img_width = image_array.shape
-
-    for y in range(0, img_height, tile_height):
-        for x in range(0, img_width, tile_width):
-            # Adjust the start position of the last tile in a row/column if necessary
-            start_y = min(y, max(0, img_height - tile_height))
-            start_x = min(x, max(0, img_width - tile_width))
-
-            # Extract the tile
-            tile = image_array[
-                start_y : start_y + tile_height, start_x : start_x + tile_width
-            ]
-            tiles.append(tile)
-
-    return tiles
 
 
 if __name__ == "__main__":
     args = parse_args()
 
-    train_images_path = os.path.join(args.DIRPATH, "imagesTr")
-    train_labels_path = os.path.join(args.DIRPATH, "labelsTr")
+    if args.is_nnunet_dir:
+        images_path = os.path.join(args.DIRPATH, "imagesTr")
+        labels_path = os.path.join(args.DIRPATH, "labelsTr")
+    else:
+        images_path = args.DIRPATH
 
     output_dir = args.OUTPUT_DIRPATH
     if not os.path.exists(output_dir):
@@ -98,37 +69,47 @@ if __name__ == "__main__":
     hdf5_file = h5py.File(
         os.path.join(output_dir, args.filename + f"_{args.modality}.hdf5"), "w"
     )
+    print(f"Creating dataset to be translated at {hdf5_file}")
     modality = hdf5_file.create_group(args.modality)
     image_group = modality.create_group("images")
-    label_group = modality.create_group("labels")
+    if args.is_nnunet_dir:  # only create labels group if the input is in nnUNet format
+        label_group = modality.create_group("labels")
 
     counter = 0
-    for train_image in tqdm(os.listdir(train_images_path)):
+    for image_name in tqdm(os.listdir(images_path)):
+        if os.path.isdir(os.path.join(images_path, image_name)):
+            continue
         # Load the image and label
-        train_label = train_image.replace("_0000.png", ".png")
         image = np.array(
-            Image.open(os.path.join(train_images_path, train_image)).convert("L")
+            Image.open(os.path.join(images_path, image_name)).convert("L")
         ).astype(np.uint8)
-        label = np.array(
-            Image.open(os.path.join(train_labels_path, train_label))
-        ).astype(np.uint8)
-
-        # Preprocess the image and label
         image = resize_image(image, args.scale_factor)
-        label = resize_image(label, args.scale_factor)
+        image_tiles, image_locations = split_image_into_tiles(image, args.tile_size, args.tile_size)
 
-        # Split the image and label into tiles
-        image_tiles = split_image_into_tiles(image, args.tile_size, args.tile_size)
-        label_tiles = split_image_into_tiles(label, args.tile_size, args.tile_size)
+        # Load the label if the input is in nnUNet format
+        if args.is_nnunet_dir:
+            label_name = image_name.replace("_0000.png", ".png")
+            label = np.array(
+                Image.open(os.path.join(labels_path, label_name))
+            ).astype(np.uint8)
+            label = resize_image(label, args.scale_factor)
+            label_tiles, _ = split_image_into_tiles(label, args.tile_size, args.tile_size)
 
         # Save the tiles and the corresponding labels to the HDF5 file
-        for tile, label_tile in zip(image_tiles, label_tiles):
-            image_group.create_dataset(
+        for i, (tile, (x, y)) in enumerate(zip(image_tiles, image_locations)):
+            image_dataset = image_group.create_dataset(
                 str(counter),
                 data=tile,
             )
-            label_group.create_dataset(
-                str(counter),
-                data=label_tile,
-            )
+            image_dataset.attrs["path_to_original"] = os.path.join(images_path, image_name)
+            image_dataset.attrs["location"] = (x, y)
+
+            # Create the label dataset if the input is in nnUNet format
+            if args.is_nnunet_dir:
+                label_dataset = label_group.create_dataset(
+                    str(counter),
+                    data=label_tiles[i],
+                )
+                label_dataset.attrs["path_to_original"] = os.path.join(labels_path, label_name)
+                label_dataset.attrs["location"] = (x, y)
             counter += 1

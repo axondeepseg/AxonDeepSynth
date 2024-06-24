@@ -27,23 +27,7 @@ from backbones.ncsnpp_generator_adagn import NCSNpp
 from configs.syndiff import SyndiffConfig
 from dataset import CreateDatasetSynthesis
 from utils.EMA import EMA
-
-
-def to_range_0_1(x: torch.Tensor) -> torch.Tensor:
-    """
-    Normalize the input tensor to the range [0, 1].
-
-    Parameters
-    ----------
-    x : torch.Tensor
-        Input tensor to be normalized.
-
-    Returns
-    -------
-    torch.Tensor
-        Normalized tensor.
-    """
-    return (x + 1.) / 2.
+from utils.utils import to_range_0_1
 
 
 def train_syndiff(

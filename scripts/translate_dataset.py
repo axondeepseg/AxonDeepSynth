@@ -1,5 +1,9 @@
 import json
 import os
+import re
+import shutil
+import tempfile
+from collections import defaultdict
 
 import cv2
 import hydra
@@ -14,6 +18,77 @@ from backbones.diffusion.utils import get_time_schedule, load_checkpoint
 from backbones.ncsnpp_generator_adagn import NCSNpp
 from configs.syndiff import SyndiffConfig
 from dataset import DatasetToBeTranslated
+from utils.images import reconstruct_image_from_patches
+
+
+def setup_nnunet_dataset(cfg: SyndiffConfig, target_contrast: str, source_contrast: str, len_dataset: int):
+    """
+    Setups the nnU-Net dataset for the translated images.
+
+    Parameters
+    ----------
+    cfg : SyndiffConfig
+        The configuration of the SynDiff model.
+    target_contrast : str
+        The target contrast to be translated.
+    source_contrast : str
+        The source contrast to be translated.
+    len_dataset : int
+        The number of images in the dataset.
+
+    Returns
+    -------
+    train_dir : str
+        The path to the training images.
+    train_labels_dir : str
+        The path to the training labels.
+    test_dir : str
+        The path to the test images.
+    """
+    # Define the name of the dataset in nnU-Net format
+    dataset_name = f"Dataset{cfg.segmentation_config.nnunet_dataset_id:03d}_SYNTH_{target_contrast}_from_{source_contrast}"
+
+    # Ensure the nnU-Net directory exists
+    assert os.path.exists(cfg.segmentation_config.nnunet_dir), "nnunet directory does not exist"
+
+    # Define the paths to the training images, training labels, and test images
+    train_dir = os.path.join(cfg.segmentation_config.nnunet_dir, "nnUNet_raw", dataset_name, "imagesTr")
+    train_labels_dir = os.path.join(
+        cfg.segmentation_config.nnunet_dir, "nnUNet_raw", dataset_name, "labelsTr"
+    )
+    test_dir = os.path.join(cfg.segmentation_config.nnunet_dir, "nnUNet_raw", dataset_name, "imagesTs")
+    os.makedirs(
+        train_dir,
+        exist_ok=True,
+    )
+    os.makedirs(
+        train_labels_dir,
+        exist_ok=True,
+    )
+    os.makedirs(
+        test_dir,
+        exist_ok=True,
+    )
+
+    # Define the dataset JSON file used by nnU-Net
+    dataset_json = {
+        "name": f"SYNTH_{target_contrast}",
+        "description": f"Synthetic {target_contrast} axon and myelin segmentation dataset for nnUNetv2",
+        "labels": {"background": 0, "myelin": 1, "axon": 2},
+        "channel_names": {"0": "rescale_to_0_1"},
+        "numTraining": len_dataset,
+        "numTest": 0,
+        "file_ending": ".png",
+    }
+
+    # Save the dataset JSON file
+    dataset_json_path = os.path.join(
+        cfg.segmentation_config.nnunet_dir, "nnUNet_raw", dataset_name, "dataset.json"
+    )
+    with open(dataset_json_path, "w") as json_file:
+        json.dump(dataset_json, json_file, indent=4)
+
+    return train_dir, train_labels_dir, test_dir
 
 
 @hydra.main(config_path="../configs", config_name="syndiff.yaml")
@@ -59,6 +134,7 @@ def translate_dataset(cfg: SyndiffConfig):
     dataset = DatasetToBeTranslated(
         cfg.translation_config.path_dataset_to_translate,
         modality=cfg.translation_config.source_contrast,
+        has_labels=cfg.translation_config.is_nnunet_dir,
     )
     data_loader = DataLoader(dataset, batch_size=1, shuffle=False, num_workers=4)
 
@@ -118,77 +194,107 @@ def translate_dataset(cfg: SyndiffConfig):
         cfg.contrast1 if cfg.translation_config.source_contrast == cfg.contrast2 else cfg.contrast2
     )
 
-    # Define the name of the dataset in nnU-Net format
-    dataset_name = f"Dataset{cfg.translation_config.nnunet_dataset_id:03d}_SYNTH_{target_contrast}"
+    # Create temporary directories for storing images and labels
+    image_dir_temp = tempfile.mkdtemp(prefix="image_dir_")
+    labels_dir_temp = tempfile.mkdtemp(prefix="labels_dir_")
 
-    # Ensure the nnU-Net directory exists
-    assert os.path.exists(cfg.translation_config.nnunet_dir), "nnunet directory does not exist"
+    try:
+        image_to_patches = defaultdict(list)
+        # Translate each image in the dataset and save the translated images and labels in the new nnU-Net formatted dataset
+        for i, batch in tqdm(enumerate(data_loader), total=len(data_loader), desc="Translating images"):
+            image = batch["image"]
+            if cfg.translation_config.is_nnunet_dir:
+                label = batch["label"]
 
-    # Define the paths to the training images, training labels, and test images
-    train_dir = os.path.join(cfg.translation_config.nnunet_dir, "nnUNet_raw", dataset_name, "imagesTr")
-    train_labels_dir = os.path.join(
-        cfg.translation_config.nnunet_dir, "nnUNet_raw", dataset_name, "labelsTr"
-    )
-    test_dir = os.path.join(cfg.translation_config.nnunet_dir, "nnUNet_raw", dataset_name, "imagesTs")
-    os.makedirs(
-        train_dir,
-        exist_ok=True,
-    )
-    os.makedirs(
-        train_labels_dir,
-        exist_ok=True,
-    )
-    os.makedirs(
-        test_dir,
-        exist_ok=True,
-    )
+            # Move the image to the device
+            source_data = image.to(device, non_blocking=True)
 
-    # Define the dataset JSON file used by nnU-Net
-    dataset_json = {
-        "name": f"SYNTH_{target_contrast}",
-        "description": f"Synthetic {target_contrast} axon and myelin segmentation dataset for nnUNetv2",
-        "labels": {"background": 0, "myelin": 1, "axon": 2},
-        "channel_names": {"0": "rescale_to_0_1"},
-        "numTraining": len(dataset),
-        "numTest": 0,
-        "file_ending": ".png",
-    }
+            # Concatenate a random noise vector and the source data to form the input for the diffusion model
+            x_t = torch.cat((torch.randn_like(source_data), source_data), axis=1)
 
-    # Save the dataset JSON file
-    dataset_json_path = os.path.join(
-        cfg.translation_config.nnunet_dir, "nnUNet_raw", dataset_name, "dataset.json"
-    )
-    with open(dataset_json_path, "w") as json_file:
-        json.dump(dataset_json, json_file, indent=4)
+            # Perform diffusion steps to generate a fake sample from the diffusion model
+            fake_sample = sample_from_model(
+                pos_coeff, gen_diffusive, cfg.model_config.num_timesteps, x_t, T, cfg.model_config.latent_dim
+            )
 
-    # Translate each image in the dataset and save the translated images and labels in the new nnU-Net formatted dataset
-    for i, (image, label) in tqdm(enumerate(data_loader), total=len(data_loader), desc="Translating images"):
+            # Rescale the fake sample to the range 0-255 and convert to a numpy array
+            fake_sample = to_range_0_255(fake_sample).clamp(0, 255).cpu().numpy().astype(np.uint8)
 
-        # Move the image to the device
-        source_data = image.to(device, non_blocking=True)
+            # Save the fake sample and label to the nnU-Net formatted dataset
+            patch_dir = f"{image_dir_temp}/SYNTH_{target_contrast}_{i:03d}_0000.png"
+            cv2.imwrite(
+                patch_dir,
+                fake_sample[0, 0],
+            )
 
-        # Concatenate a random noise vector and the source data to form the input for the diffusion model
-        x_t = torch.cat((torch.randn_like(source_data), source_data), axis=1)
+            image_data = {
+                "patch_dir": patch_dir,
+                "image_location": batch["image_location"].flatten().tolist(),
+            }
 
-        # Perform diffusion steps to generate a fake sample from the diffusion model
-        fake_sample = sample_from_model(
-            pos_coeff, gen_diffusive, cfg.model_config.num_timesteps, x_t, T, cfg.model_config.latent_dim
-        )
+            if cfg.translation_config.is_nnunet_dir:
+                patch_label_dir = f"{labels_dir_temp}/SYNTH_{target_contrast}_{i:03d}.png"
+                cv2.imwrite(
+                    patch_label_dir,
+                    label[0, 0].numpy(),
+                )
 
-        # Rescale the fake sample to the range 0-255 and convert to a numpy array
-        fake_sample = (
-            to_range_0_255(fake_sample).clamp(0, 255).cpu().numpy().astype(np.uint8)
-        )
+                image_data["patch_label_dir"] = patch_label_dir
+                image_data["label_location"] = batch["label_location"].flatten().tolist()
+                image_data["label_path_original"] = batch["label_path_original"][0]
 
-        # Save the fake sample and label to the nnU-Net formatted dataset
-        cv2.imwrite(
-            f"{train_dir}/SYNTH_{target_contrast}_{i:03d}_0000.png",
-            fake_sample[0, 0],
-        )
-        cv2.imwrite(
-            f"{train_labels_dir}/SYNTH_{target_contrast}_{i:03d}.png",
-            label[0, 0].numpy(),
-        )
+            image_to_patches[batch["image_path_original"][0]].append(image_data)
+
+        metadata = {
+            "patch_dimension": list(image.shape)[2:],
+            "image_to_patches": image_to_patches,
+        }
+
+        if cfg.translation_config.is_nnunet_dir:
+            image_dir, labels_dir, _ = setup_nnunet_dataset(cfg, target_contrast, cfg.translation_config.source_contrast, len(image_to_patches))
+        else:
+            image_dir = cfg.translation_config.output_dir
+            os.makedirs(
+                image_dir,
+                exist_ok=True,
+            )
+
+        translated_paths_to_original_paths = {}
+        translated_paths_to_original_paths_labels = {}
+        for i, (original_path, patch_info_dict) in tqdm(enumerate(metadata['image_to_patches'].items()), desc="Reconstructing images from patches", total=len(metadata['image_to_patches'])):
+            full_image = reconstruct_image_from_patches(
+                patch_info_dict,
+                metadata["patch_dimension"],
+                dir_key="patch_dir",
+                location_key="image_location"
+            )
+            match = re.match(r".*?_(\d{3})_\d{4}\.png$", original_path)
+            if match:
+                id = int(match.group(1))
+            else:
+                id = i
+            new_path_image = f"{image_dir}/SYNTH_{target_contrast}_{id:03d}_0000.png"
+            translated_paths_to_original_paths[new_path_image] = original_path
+            cv2.imwrite(new_path_image, full_image)
+            if cfg.translation_config.is_nnunet_dir:
+                full_label = reconstruct_image_from_patches(
+                    patch_info_dict,
+                    metadata["patch_dimension"],
+                    dir_key="patch_label_dir",
+                    location_key="label_location"
+                )
+                original_label_path = patch_info_dict[0]["label_path_original"]
+                new_label_path = f"{labels_dir}/SYNTH_{target_contrast}_{id:03d}.png"
+                translated_paths_to_original_paths_labels[new_label_path] = original_label_path
+                cv2.imwrite(new_label_path, full_label)
+
+        # Save the translated paths to the original paths as a JSON file
+        json_path = os.path.join(image_dir, "translated_to_original_paths.json")
+        with open(json_path, 'w') as json_file:
+            json.dump(translated_paths_to_original_paths, json_file, indent=4)
+    finally:
+        shutil.rmtree(image_dir_temp)
+        shutil.rmtree(labels_dir_temp)
 
 
 if __name__ == "__main__":
