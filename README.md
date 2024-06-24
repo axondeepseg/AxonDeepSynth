@@ -205,6 +205,38 @@ The `--use-best-checkpoint` flag is optional. If used, the model will use the be
 
 Note: `<FORMATTED_DATASET_ID>` should be a three-digit number where 1 would become 001 and 23 would become 023.
 
+## Evaluation
+
+### Evaluation of the SynDiff Model
+
+To evaluate the SynDiff model, run the `test.py` script with the appropriate experiment configuration and dataset paths.
+
+```bash
+python test.py exp=<EXPERIMENT_NAME> \
+            contrast1=<MODALITY1> \
+            contrast2=<MODALITY2> \
+            network_distribution.gpus=[<GPU_ID>] \
+            translation_config.which_epoch=<EPOCH> \
+            training_config.training_dataset_path="<TRAINING_DATASET_PATH>" \
+            syndiff_results_path="<SYNDIFF_RESULTS_PATH>" \
+            model_config.image_size=<IMAGE_SIZE>
+```
+
+### Evaluation of the Segmentation Model
+
+Execute the script from the command line by providing the required arguments:
+
+```bash
+./scripts/evaluate_segmentation.sh <image_dir> <labels_dir> <output_dir> <model> <NNUNET_PATH>
+```
+
+where the arguments are: 
+- `image_dir`: Directory containing the images for inference.
+- `labels_dir`: Directory containing the ground truth labels for evaluation.
+- `output_dir`: Directory where the output segmentations and scores will be saved.
+- `model`: Model identifier used to locate the specific trained model.
+- `NNUNET_PATH`: Path to the nnUNet framework results directory.
+
 # Acknowledgements
 
 This code uses libraries from, [pGAN](https://github.com/icon-lab/pGAN-cGAN), [StyleGAN-2](https://github.com/NVlabs/stylegan2), and [DD-GAN](https://github.com/NVlabs/denoising-diffusion-gan) repositories.
