@@ -93,8 +93,19 @@ class TranslationConfig:
     path_dataset_to_translate: str  # Path to the dataset to translate
     which_epoch: int  # Which epoch to use for translation
     source_contrast: str  # Source contrast for translation (target contrast is inferred from the contrasts in the config)
-    nnunet_dataset_id: int  # NNUNet dataset ID for the new dataset
-    nnunet_dir: str  # NNUNet directory for the new dataset
+    output_dir: Optional[str]
+    is_nnunet_dir: bool  # Whether the nnUNet directory is already a dataset
+
+
+@dataclass
+class SegmentationConfig:
+    """
+    Configuration for segmentation.
+    """
+    path_to_nnunet_model: str  # Path to the nnU-Net model
+    path_dataset_to_segment: str  # Path to the dataset to segment
+    nnunet_dataset_id: Optional[int]  # NNUNet dataset ID for the new dataset when creating a new dataset for segmentation
+    nnunet_dir: Optional[str]  # NNUNet directory for the new dataset
 
 
 @dataclass
@@ -111,3 +122,4 @@ class SyndiffConfig:
     model_config: ModelConfig  # Configuration for the model
     training_config: Optional[SynDiffTrainingConfig]  # Configuration for the training
     translation_config: Optional[TranslationConfig]  # Configuration for translation
+    segmentation_config: Optional[SegmentationConfig]  # Configuration for segmentation
